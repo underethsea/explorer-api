@@ -1,3 +1,4 @@
 .env
 static/
 .well-known/
+node_modules/

@@ -1,5 +1,10 @@
 # explorer-api
 
+API runs off of the database that can be found at
+
+https://github.com/drcpu-github/pooltogether-v4-brownie/tree/main/data
+
+
 example https://poolexplorer.xyz/draw140
 ```
     n: network (eth=1 poly=3 avax=4)
