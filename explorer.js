@@ -20,7 +20,7 @@ const app = express();
 //  renderError(req, res) // Your function to render an error page
 // })
 
-const allowList = ["51.81.32.49"];
+const allowList = ["::ffff:51.81.32.49"];
 const limiter = rateLimit({
   windowMs: 60 * 1000, // 1 minutes
   max: 30, // Limit each IP to 60  requests per `window` (here, per 1 minutes)
@@ -33,10 +33,11 @@ const limiter = rateLimit({
       error: "You sent too many requests. Please wait a while then try again",
     });
   },
+ skip: function (request, response) { return allowList.includes(request.ip)}
 });
 
 // add for whitelisting
-//  skip: function (request, response) { return allowlist.includes(request.ip)}
+//  skip: function (request, response) { return allowList.includes(request.ip)}
 // skip: (request, response) => allowlist.includes(request.ip),
 
 const privateKey = fs.readFileSync(
@@ -268,7 +269,7 @@ async function openAddressApi() {
   app.get("/player", async (req, res) => {
     // var addressInput = sanitizer.value(req.query.address, 'string');
 
-    if (req.query.address.length < 50) {
+    if (req.query.address.length < 50 && ethers.utils.isAddress(req.query.address)) {
       let address = "\\" + req.query.address.substring(1);
       // console.log('query for address' + address)
       let addressQuery =
@@ -277,7 +278,7 @@ async function openAddressApi() {
         "'";
       let addressPrizes = await db.any(addressQuery);
       res.send(addressPrizes);
-    }
+    }else {return}
   });
 }
 
