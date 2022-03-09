@@ -266,7 +266,7 @@ async function publish(json, name) {
   });
 }
 async function openAddressApi() {
-  app.get("/player", async (req, res) => {
+  app.get("/player", async (req, res,next) => {
     // var addressInput = sanitizer.value(req.query.address, 'string');
 
     if (req.query.address.length < 50 && ethers.utils.isAddress(req.query.address)) {
@@ -278,7 +278,7 @@ async function openAddressApi() {
         "'";
       let addressPrizes = await db.any(addressQuery);
       res.send(addressPrizes);
-    }else {return}
+    }else {next("ERROR - Invalid address")}
   });
 }
 
