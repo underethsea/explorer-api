@@ -21,7 +21,8 @@ get the most recent draw with same format and addition of "id" at the end of the
 
 example https://poolexplorer.xyz/player?address=0xc8f7c0dc39c8f736e8d9ffd85c4adcb3c7a4bf37
 ```
-    query: select network,address,draw_id,claimable_prizes from prizes where address = <address>```
+    query: select network,address,draw_id,claimable_prizes from prizes where address = <address>
+```
     returns array of players history, example
 ``` json
     {"network":"polygon",
