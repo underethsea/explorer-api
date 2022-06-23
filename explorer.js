@@ -8,17 +8,15 @@ const https = require("https");
 var compression = require("compression");
 const dotenv = require("dotenv");
 const rateLimit = require("express-rate-limit");
-
+const CheckPrizeApi = require("./checkPrizeApi.js");
+const CheckApi = require("./drawCalculationComparrison.js");
 dotenv.config();
 // var sanitizer = require('sanitize');
 
 const app = express();
 
-// What to do when our maximum request rate is breached
-// const limitReached = ((req,res) => {
-//  log.warn({ ip: req.ip }, ‘Rate limiter triggered’)
-//  renderError(req, res) // Your function to render an error page
-// })
+// use previous calculations (json files) to rebuild API
+const useStaticFiles = true
 
 const allowList = ["::ffff:51.81.32.49"];
 const limiter = rateLimit({
@@ -33,7 +31,9 @@ const limiter = rateLimit({
       error: "You sent too many requests. Please wait a while then try again",
     });
   },
- skip: function (request, response) { return allowList.includes(request.ip)}
+  skip: function (request, response) {
+    return allowList.includes(request.ip);
+  },
 });
 
 // add for whitelisting
@@ -78,16 +78,24 @@ const cn = {
   user: "pooltogether",
   password: process.env.PASSWORD,
 };
+const cnMax = {
+    host: "localhost", // server name or IP address;
+    port: 5432,
+    database: "pooltogether_max",
+    user: "pooltogether",
+    password: process.env.PASSWORD,
+  };
 const db = pgp(cn);
-let draws = 80;
+const db2 = pgp(cnMax);
 async function getCurrentDraw() {
   let queryDrawNumber = "SELECT max(draw_id) FROM draws";
   let currentDrawNumber = await db.any(queryDrawNumber);
   // console.log("current draw number",currentDrawNumber)
+  currentDrawNumber = parseInt(currentDrawNumber[0].max);
   return currentDrawNumber;
 }
 
-let drawName = "";
+let drawString = ""
 let network = "";
 let drawClaimable = 0;
 let drawDropped = 0;
@@ -107,20 +115,34 @@ let normalizeBalance = 0;
 let averageBalance = 0;
 let luckiest = [];
 let userLucky = {};
-
+let totalHistory = [];
+let prizesTotal = 0
+let totalPrizesInDraw = 0
 async function go() {
   app.use(limiter);
 
-  let drawCurrent = await getCurrentDraw();
-  draws = drawCurrent[0].max;
-  console.log("current draw ", draws);
-  draws = parseInt(draws);
+  let newestDrawId = await getCurrentDraw();
+  console.log("current draw ",newestDrawId)
+  
   try {
     await openApi();
   } catch (e) {
     console.log("express error:", e);
   }
-  for (x = 0; x <= draws; x++) {
+  let startBuild = 0
+//   if(useStaticFiles) {
+//       for (x=startBuild;x<draws;x++) {
+//         let drawData = fs.readFileSync(
+//             "./draws/draw" + x.toString() + ".json",
+//             "utf8"
+//           );
+//           await publish(JSON.stringify(drawData),"/draw"+x)
+//       }
+//       startBuild = draws - 1
+//   }
+//   console.log("start build ",startBuild)
+  for (x = startBuild; x <= newestDrawId; x++) {
+
     try {
       query =
         "SELECT network,address,claimable_prizes,dropped_prizes,normalized_balance,average_balance FROM prizes WHERE draw_id='" +
@@ -149,6 +171,7 @@ async function go() {
             dropDecimal = parseFloat(dropped) / 10000000 / 10000000;
             totalDropped += dropDecimal; // 14 decimal, why i dunno
             drawDropped += dropDecimal;
+            totalPrizesInDraw += 1
             dropping.push(dropDecimal.toFixed());
           }
         }
@@ -158,9 +181,13 @@ async function go() {
           totalClaimable = 0;
           winning = [];
           for (claimable of row.claimable_prizes) {
+            
             claimDecimal = parseFloat(claimable) / 10000000 / 10000000; // 14 decimal, why i dunno
             totalClaimable += claimDecimal;
             drawClaimable += claimDecimal;
+            totalPrizesInDraw += 1
+
+            prizesTotal += 1; // claimable specific
             winning.push(claimDecimal.toFixed());
           }
 
@@ -200,16 +227,18 @@ async function go() {
         return a.w - b.w;
       });
       drawJson.reverse();
-      drawName = "/draw" + x;
-      publish(drawJson, drawName);
-      if (x === draws) {
+      drawString = "/draw" + x
+      publish(drawJson,drawString);
+      if (x === newestDrawId) {
         let recentDraw = {};
         recentDraw.result = drawJson;
-        recentDraw.id = draws;
+        recentDraw.id = newestDrawId;
         publish(recentDraw, "/recent");
-        console.log("published recent ", draws);
+        console.log("published recent ", x);
       }
       fs.writeFileSync("./draws/draw" + x + ".json", JSON.stringify(drawJson));
+      let totalPrizeValue = drawClaimable + drawDropped
+
       console.log(
         "winners",
         drawJson.length,
@@ -218,12 +247,35 @@ async function go() {
         " dropped: ",
         drawDropped,
         " total ",
-        drawClaimable + drawDropped
+        totalPrizeValue
       );
+      let drawStats = {
+        i: x, // drawId
+        w: drawJson.length, // winners
+        p: prizesTotal, // total claimable prizes
+        c: drawClaimable.toFixed(0), // claimable
+        d: drawDropped.toFixed(0), // dropped
+        t: totalPrizeValue.toFixed(0), //total
+      }
+      totalHistory.push(drawStats)
+
+      //if(x>105) {
+      
+     // let prizeApi = await CheckPrizeApi(x.toString())
+      //console.log("Prize API: ",prizeApi)
+     // }
+
+      //let databaseResult = {totalPrizeCount: totalPrizesInDraw,
+     // totalPrizeAmount: totalPrizeValue}
+     // console.log("DB Result: ",databaseResult)
+
+
       drawJson = [];
       total = 0;
+      prizesTotal = 0;
       drawClaimable = 0;
       drawDropped = 0;
+      totalPrizesInDraw = 0;
     } catch (e) {
       console.log("errors", e);
     }
@@ -239,12 +291,20 @@ async function go() {
   });
   luckiest.reverse();
   publish(luckiest.slice(0, 20), "/luckiest");
+
   luckiest.sort(function (a, b) {
     return a.r - b.r;
   });
   luckiest.reverse();
   publish(luckiest.slice(0, 20), "/luckiestR");
+  publish(totalHistory,"/history");
+  try{
+  let check = await CheckApi()
+  publish(check,"/calculations")
+  }catch(error){console.log("calculation check failed -> \n",error)}
+ 
 }
+
 async function openApi() {
   // app.listen(port, () => {
   //   console.log(`Example app listening at http://localhost:${port}`)
@@ -255,7 +315,10 @@ async function openApi() {
     })
   );
   app.use(compression());
+  // lets encrypt
+  app.use(express.static(__dirname, { dotfiles: "allow" }));
 }
+
 async function publish(json, name) {
   app.get(name, async (req, res) => {
     try {
@@ -266,10 +329,13 @@ async function publish(json, name) {
   });
 }
 async function openAddressApi() {
-  app.get("/player", async (req, res,next) => {
+  app.get("/player", async (req, res, next) => {
     // var addressInput = sanitizer.value(req.query.address, 'string');
 
-    if (req.query.address.length < 50 && ethers.utils.isAddress(req.query.address)) {
+    if (
+      req.query.address.length < 50 &&
+      ethers.utils.isAddress(req.query.address)
+    ) {
       let address = "\\" + req.query.address.substring(1);
       // console.log('query for address' + address)
       let addressQuery =
@@ -278,7 +344,9 @@ async function openAddressApi() {
         "'";
       let addressPrizes = await db.any(addressQuery);
       res.send(addressPrizes);
-    }else {next("ERROR - Invalid address")}
+    } else {
+      next("ERROR - Invalid address");
+    }
   });
 }
 
