@@ -2,4 +2,4 @@
 static/
 .well-known/
 node_modules/
-draws/
+draws/*

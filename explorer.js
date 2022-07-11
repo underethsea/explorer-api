@@ -162,6 +162,9 @@ async function go() {
         if (row.network == "avalanche") {
           network = "4";
         }
+ if (row.network == "optimism") {
+          network = "6";
+        }
         averageBalance = parseFloat(row.average_balance) / 1e6;
 
         if (row.dropped_prizes !== null) {

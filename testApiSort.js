@@ -1,5 +1,6 @@
 const fetch = require('cross-fetch')
-// const drawId = 212
+const drawId = 250
+const prizeCap = 1
 const chains = [{
     name: "Avalanche",
     chainId: "43114",
@@ -21,7 +22,8 @@ const chains = [{
     prizeDistributor: "0x722e9BFC008358aC2d445a8d892cF7b62B550F3F"
 }
 ]
-module.exports = async (drawId) => {
+// module.exports = async (drawId) => {
+    async function test(drawId) {
     
     let totalPrizeLength = 0
     let totalAmounts = 0
@@ -30,7 +32,8 @@ module.exports = async (drawId) => {
     for (let chain of chains) {
         const api = await fetchApi(drawId, chain)
         if(api !== undefined) {
-       
+        let consolidated = consolidateByAddress(api)
+        console.log(consolidated)
         // const prizeJson = api.apiPrizeJson
         // const statusJson = api.apiStatusJson
         // console.log(statusJson)
@@ -84,6 +87,17 @@ module.exports = async (drawId) => {
         } catch (error) { console.log("api fetch fail for draw ",drawId," chain ",chain.chainId) }
     }
 
+    async function consolidateByAddress(results) {
+     //   var cars = [{ make: 'audi', model: 'r8', year: '2012' }, { make: 'audi', model: 'rs5', year: '2013' }, { make: 'ford', model: 'mustang', year: '2012' }, { make: 'ford', model: 'fusion', year: '2015' }, { make: 'kia', model: 'optima', year: '2012' }],
+    consolidatedResult = results.reduce(function (r, a) {
+        r[a.address] = r[a.address] || [];
+        r[a.address].push(a.amount)
+        return r;
+    }, Object.create(null));
+    return consolidatedResult;
+}
+
+
     async function checkMismatchPrizes(prizesAllChains,drawId){
     //check for unmatched prizes
 //	console.log(prizesAllChains.length,"   prizes for draw ",drawId);
@@ -107,3 +121,4 @@ module.exports = async (drawId) => {
         }
     })
 }
+test(drawId)
