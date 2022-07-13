@@ -1,127 +1,46 @@
-const fetch = require('cross-fetch')
-const drawId = 271
-const prizeCap = 1
-const chains = [{
-    name: "Avalanche",
-    chainId: "43114",
-    prizeDistributor: "0x83332f908f403ce795d90f677ce3f382fe73f3d1"
-},
-{
-    name: "Polygon",
-    chainId: "137",
-    prizeDistributor: "0x8141bcfbcee654c5de17c4e2b2af26b67f9b9056"
-},
-{
-    name: "Ethereum",
-    chainId: "1",
-    prizeDistributor: "0xb9a179dca5a7bf5f8b9e088437b3a85ebb495efe"
-},
-{
-    name: "Optimism",
-    chainId: "10",
-    prizeDistributor: "0x722e9BFC008358aC2d445a8d892cF7b62B550F3F"
-}
-]
-// module.exports = async (drawId) => {
-async function test(drawId) {
+# explorer-api
 
-    // initialize variables
-    let totalPrizeLength = 0
-    let prizeNetworkClaimableCount = 0
-    let prizeNetworkClaimable = 0
-    let prizeNetworkDropped = 0
-    let prizesAllChains = []
+API runs off of the database that can be found at
 
-    // loop through all of the supported chains
-    for (let chain of chains) {
-        const api = await fetchApi(drawId, chain)
-        // check api returned
-        if (api !== undefined) {
-            // group results by address
-            let consolidated = await consolidateByAddress(api)
-            let sortedConsolidated = []
-            // loop through results by address
-            for (let winner in consolidated) {
-                let prizes = consolidated[winner].amount.sort().reverse()
-                let prizesFloat = []
+https://github.com/drcpu-github/pooltogether-v4-brownie/tree/main/data
 
-                // yuckkky yuckerson
-                prizes.forEach(p => {
-                    let float = parseFloat(p)
-                    float = float / 1e6
-                    float = float.toFixed(0)
-                    float = float.toString()
-                    prizesFloat.push(float)
-                })
+example https://poolexplorer.xyz/draw140
+```
+    n: network (eth=1 poly=3 avax=4)
+    a: user address
+    c: array of prizes claimable
+    u: array of prizes unclaimable
+    b: normalized balance
+    w: sum of prizes claimable
+    d: sum of prizes dropped
+    g: users average balance
+```          
 
-                // split claimable prizes from dropped according to prize cap
-                let claimable = prizesFloat.slice(0, prizeCap)
-                let dropped = prizesFloat.slice(prizeCap, prizes.length)
+example https://poolexplorer.xyz/recent/
+get the most recent draw with same format and addition of "id" at the end of the output
 
-                // sum claimable and dropped arrays
-                let totalClaimable = claimable.reduce((partialSum, a) => partialSum + (parseFloat(a)), 0);
-                let totalDropped = dropped.reduce((partialSum, a) => partialSum + (parseFloat(a)), 0);
+example https://poolexplorer.xyz/player?address=0xc8f7c0dc39c8f736e8d9ffd85c4adcb3c7a4bf37
+```
+    query: select network,address,draw_id,claimable_prizes from prizes where address = <address>
+```
+    returns array of players history, example
+``` json
+    {"network":"polygon",
+    "address":{"type":"Buffer","data":[200,247,192,220,57,200,247,54,232,217,255,216,92,74,220,179,199,164,191,55]},
+    "draw_id":87,
+    "claimable_prizes":["999999991183333","99999999921875"]}  
+```
 
-                // add to total prize count for the draw
-                totalPrizeLength += parseFloat(api.length);
+example https://poolexplorer.xyz/luckiest
+luckiest all-time winners sorted by win - balance
+```
+    n: network
+    d: draw
+    a: address
+    w: amount won
+    g: average balance
+    o: win - balance
+```
 
-                // total amount and value of prizes claimable and dropped on this specific network
-                prizeNetworkClaimableCount += claimable.length
-                prizeNetworkClaimable += totalClaimable;
-                prizeNetworkDropped += totalDropped;
-
-                // add address to chain prize array
-                sortedConsolidated.push({
-                    n: chain.chainId,
-                    a: consolidated[winner].address,
-                    k: consolidated[winner].pick,
-                    c: claimable,
-                    u: dropped,
-                    w: totalClaimable,
-                    d: totalDropped
-                })
-            }
-
-            // add chain to mega prize return
-            prizesAllChains = [...prizesAllChains, ...sortedConsolidated]
-
-        }
-    }
-
-    console.log(prizesAllChains)
-    console.log("total prizes: ", totalPrizeLength)
-    console.log("total prizes claimable ", prizeNetworkClaimableCount)
-    console.log("total claimable: ", prizeNetworkClaimable)
-    console.log("total dropped: ", prizeNetworkDropped)
-    return prizesAllChains
-
-}
-
-async function fetchApi(drawId, chain) {
-    console.log("Fetching prize API data for ", chain.chainId)
-
-    // api urls based on chain and draw information
-    // const statusApiUrl = "https://api.pooltogether.com/prizes/" + chain.chainId + "/" + chain.prizeDistributor + "/draw/" + drawId + "/status.json";
-    const prizesApiUrl = "https://api.pooltogether.com/prizes/" + chain.chainId + "/" + chain.prizeDistributor + "/draw/" + drawId + "/prizes.json";
-    try {
-        // fetch api status for specified draw and chain
-        // const apiStatusReturn = await fetch(statusApiUrl)
-        // const apiStatusJson = await apiStatusReturn.json()
-        const prizeApiReturn = await fetch(prizesApiUrl)
-        const prizeApiJson = await prizeApiReturn.json()
-        return prizeApiJson
-
-    } catch (error) { console.log("api fetch fail for draw ", drawId, " chain ", chain.chainId) }
-}
-
-async function consolidateByAddress(results) {
-
-    const consolidatedResult = {};
-    for (const { address, pick, amount } of results) {
-        if (!consolidatedResult[address]) consolidatedResult[address] = { address, pick, amount: [] };
-        consolidatedResult[address].amount.push(amount);
-    }
-    return consolidatedResult;
-}
-
-test(drawId)
+example https://poolexplorer.xyz/luckiestR
+luckiest all-time winners sorted by win / balance =>  same format as above
