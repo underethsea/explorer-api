@@ -4,21 +4,25 @@ const prizeCap = 1
 const chains = [{
     name: "Avalanche",
     chainId: "43114",
+    apiId: "4",
     prizeDistributor: "0x83332f908f403ce795d90f677ce3f382fe73f3d1"
 },
 {
     name: "Polygon",
     chainId: "137",
+    apiId: "3",
     prizeDistributor: "0x8141bcfbcee654c5de17c4e2b2af26b67f9b9056"
 },
 {
     name: "Ethereum",
     chainId: "1",
+    apiId: "1",
     prizeDistributor: "0xb9a179dca5a7bf5f8b9e088437b3a85ebb495efe"
 },
 {
     name: "Optimism",
     chainId: "10",
+    apiId: "6",
     prizeDistributor: "0x722e9BFC008358aC2d445a8d892cF7b62B550F3F"
 }
 ]
@@ -37,6 +41,9 @@ async function test(drawId) {
         const api = await fetchApi(drawId, chain)
         // check api returned
         if (api !== undefined) {
+            // add to total prize count for the draw
+            totalPrizeLength += parseInt(api.length);
+
             // group results by address
             let consolidated = await consolidateByAddress(api)
             let sortedConsolidated = []
@@ -62,18 +69,17 @@ async function test(drawId) {
                 let totalClaimable = claimable.reduce((partialSum, a) => partialSum + (parseFloat(a)), 0);
                 let totalDropped = dropped.reduce((partialSum, a) => partialSum + (parseFloat(a)), 0);
 
-                // add to total prize count for the draw
-                totalPrizeLength += parseFloat(api.length);
 
                 // total amount and value of prizes claimable and dropped on this specific network
                 prizeNetworkClaimableCount += claimable.length
                 prizeNetworkClaimable += totalClaimable;
                 prizeNetworkDropped += totalDropped;
 
+                let poolerAddress = consolidated[winner].address
                 // add address to chain prize array
                 sortedConsolidated.push({
-                    n: chain.chainId,
-                    a: consolidated[winner].address,
+                    n: chain.apiId,
+                    a: poolerAddress,
                     k: consolidated[winner].pick,
                     c: claimable,
                     u: dropped,
@@ -88,12 +94,19 @@ async function test(drawId) {
         }
     }
 
-    console.log(prizesAllChains)
+//    console.log(prizesAllChains)
     console.log("total prizes: ", totalPrizeLength)
     console.log("total prizes claimable ", prizeNetworkClaimableCount)
     console.log("total claimable: ", prizeNetworkClaimable)
     console.log("total dropped: ", prizeNetworkDropped)
-    return prizesAllChains
+    const prizeApiReturn ={
+        result: prizesAllChains,
+        totalPrizeCount: totalPrizeLength,
+        totalPrizeCountClaimable: prizeNetworkClaimableCount,
+        totalValueClaimable: prizeNetworkClaimable,
+        totalValueDropped: prizeNetworkDropped,
+    }
+    return prizeApiReturn;
 
 }
 
@@ -124,4 +137,5 @@ async function consolidateByAddress(results) {
     return consolidatedResult;
 }
 
-test(drawId)
+// test(drawId)
+module.exports.ApiSort = test;

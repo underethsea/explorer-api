@@ -10,8 +10,13 @@ const dotenv = require("dotenv");
 const rateLimit = require("express-rate-limit");
 const CheckPrizeApi = require("./checkPrizeApi.js");
 const CheckApi = require("./drawCalculationComparrison.js");
+const { ApiSort } = require("./testApiSort.js")
+
 dotenv.config();
 // var sanitizer = require('sanitize');
+
+// use prize api instead of DB for /draw and /recent
+const usePrizeApi = true
 
 const app = express();
 
@@ -231,7 +236,8 @@ async function go() {
       });
       drawJson.reverse();
       drawString = "/draw" + x
-      publish(drawJson,drawString);
+if(!usePrizeApi){      
+publish(drawJson,drawString);
       if (x === newestDrawId) {
         let recentDraw = {};
         recentDraw.result = drawJson;
@@ -240,7 +246,8 @@ async function go() {
         console.log("published recent ", x);
       }
       fs.writeFileSync("./draws/draw" + x + ".json", JSON.stringify(drawJson));
-      let totalPrizeValue = drawClaimable + drawDropped
+      }
+let totalPrizeValue = drawClaimable + drawDropped
 
       console.log(
         "winners",
@@ -283,6 +290,30 @@ async function go() {
       console.log("errors", e);
     }
   }
+
+if(usePrizeApi){
+  for (let x = 1; x <= newestDrawId; x++) {
+try{
+    let result = await ApiSort(x);
+    let winners = result.result
+     winners.sort(function (a, b) {
+        return a.w - b.w;
+      });
+      winners.reverse();
+    let publishUrl = "/draw" + x
+
+    publish(winners,publishUrl)
+if (x === newestDrawId) {
+        let recentDraw = {};
+        recentDraw.result = winners;
+        recentDraw.id = newestDrawId;
+        publish(recentDraw, "/recent");
+        console.log("published recent ", x);
+      }
+
+}catch(error){console.log(error)}
+  }
+}
   try {
     await openAddressApi();
   } catch (e) {
