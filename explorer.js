@@ -10,18 +10,28 @@ const dotenv = require("dotenv");
 const rateLimit = require("express-rate-limit");
 const CheckPrizeApi = require("./checkPrizeApi.js");
 const CheckApi = require("./drawCalculationComparrison.js");
-const { ApiSort } = require("./testApiSort.js")
-
+const { ProcessPrizeApiDraw } = require("./processPrizeApiDraw.js")
+const { FetchPlayers } = require("./players")
+const { FetchHolders } = require("./holders")
+const { GetNextDraw } = require("./getNextDraw")
+const { GetLidoApy } = require("./getLidoApy")
 dotenv.config();
 // var sanitizer = require('sanitize');
 
 // use prize api instead of DB for /draw and /recent
-const usePrizeApi = true
+
 
 const app = express();
+const args = process.argv;
 
-// use previous calculations (json files) to rebuild API
-const useStaticFiles = true
+// publish recent from the prize api
+const recentFromApi =   true
+ const manualDrawId = 405 // 0 is ignore
+// source control - use previous calculations (json files) to rebuild API or choose db source
+// const useStaticFiles = false  // toggle using prize api flat file as source
+const dbName = "pooltogether"  // toggle db source
+const usePrizeApi = false
+const compareApiSources = false
 
 const allowList = ["::ffff:51.81.32.49"];
 const limiter = rateLimit({
@@ -79,26 +89,47 @@ httpsServer.listen(443, () => {
 const cn = {
   host: "localhost", // server name or IP address;
   port: 5432,
-  database: "pooltogether",
+  database: dbName,
   user: "pooltogether",
   password: process.env.PASSWORD,
 };
 const cnMax = {
-    host: "localhost", // server name or IP address;
-    port: 5432,
-    database: "pooltogether_max",
-    user: "pooltogether",
-    password: process.env.PASSWORD,
-  };
+  host: "localhost", // server name or IP address;
+  port: 5432,
+  database: "pooltogether_max",
+  user: "pooltogether",
+  password: process.env.PASSWORD,
+};
+const cnDrcpu = {
+  host: "localhost", // server name or IP address;
+  port: 5432,
+  database: "pooltogether",
+  user: "pooltogether",
+  password: process.env.PASSWORD,
+};
 const db = pgp(cn);
-const db2 = pgp(cnMax);
+// const db2 = pgp(cnMax);
+const dbDrcpu = pgp(cnDrcpu);
+
 async function getCurrentDraw() {
-  let queryDrawNumber = "SELECT max(draw_id) FROM draws";
+  let queryDrawNumber = "SELECT max(draw_id) FROM prizes";
+
   let currentDrawNumber = await db.any(queryDrawNumber);
   // console.log("current draw number",currentDrawNumber)
   currentDrawNumber = parseInt(currentDrawNumber[0].max);
+
+  // GET FROM CONTRACT
+ //  let nextDraw = await GetNextDraw()
+ // currentDrawNumber = nextDraw - 1;
+
+  // manually process draw number
+
+if(manualDrawId > 0) {
+return manualDrawId}
+else  {  
+
   return currentDrawNumber;
-}
+}}
 
 let drawString = ""
 let network = "";
@@ -122,35 +153,44 @@ let luckiest = [];
 let userLucky = {};
 let totalHistory = [];
 let prizesTotal = 0
+let cookies = []
 let totalPrizesInDraw = 0
+// let drawAllPlayers = []
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
 async function go() {
   app.use(limiter);
 
   let newestDrawId = await getCurrentDraw();
-  console.log("current draw ",newestDrawId)
-  
+  console.log("current draw ", newestDrawId)
+
   try {
     await openApi();
   } catch (e) {
     console.log("express error:", e);
   }
-  let startBuild = 0
-//   if(useStaticFiles) {
-//       for (x=startBuild;x<draws;x++) {
-//         let drawData = fs.readFileSync(
-//             "./draws/draw" + x.toString() + ".json",
-//             "utf8"
-//           );
-//           await publish(JSON.stringify(drawData),"/draw"+x)
-//       }
-//       startBuild = draws - 1
-//   }
-//   console.log("start build ",startBuild)
+  let startBuild = 1
+  //   if(useStaticFiles) {
+  //       for (x=startBuild;x<draws;x++) {
+  //         let drawData = fs.readFileSync(
+  //             "./draws/draw" + x.toString() + ".json",
+  //             "utf8"
+  //           );
+  //           await publish(JSON.stringify(drawData),"/draw"+x)
+  //       }
+  //       startBuild = draws - 1
+  //   }
+  //   console.log("start build ",startBuild)
   for (x = startBuild; x <= newestDrawId; x++) {
 
     try {
+
+// let drawData = fs.readFileSync('./draws/draw'+x+'.json')
+//if(drawData == undefined) {
       query =
-        "SELECT network,address,claimable_prizes,dropped_prizes,normalized_balance,average_balance FROM prizes WHERE draw_id='" +
+        "SELECT network,address,claimable_prizes,dropped_prizes,normalized_balance,average_balance FROM prizewins WHERE draw_id='" +
         x +
         "'";
       draw = await db.any(query);
@@ -167,7 +207,7 @@ async function go() {
         if (row.network == "avalanche") {
           network = "4";
         }
- if (row.network == "optimism") {
+        if (row.network == "optimism") {
           network = "6";
         }
         averageBalance = parseFloat(row.average_balance) / 1e6;
@@ -177,10 +217,13 @@ async function go() {
           dropping = [];
           for (dropped of row.dropped_prizes) {
             dropDecimal = parseFloat(dropped) / 10000000 / 10000000;
+            dropDecimal = (Math.round(dropDecimal * 20) / 20).toFixed(2);
+            dropDecimal = Number(dropDecimal)
             totalDropped += dropDecimal; // 14 decimal, why i dunno
             drawDropped += dropDecimal;
             totalPrizesInDraw += 1
-            dropping.push(dropDecimal.toFixed());
+          
+            dropping.push(dropDecimal);
           }
         }
         normalizeBalance = row.normalized_balance;
@@ -189,14 +232,16 @@ async function go() {
           totalClaimable = 0;
           winning = [];
           for (claimable of row.claimable_prizes) {
-            
+
             claimDecimal = parseFloat(claimable) / 10000000 / 10000000; // 14 decimal, why i dunno
+            claimDecimal = (Math.round(claimDecimal * 20) / 20).toFixed(2);
+            claimDecimal = Number(claimDecimal)
             totalClaimable += claimDecimal;
             drawClaimable += claimDecimal;
             totalPrizesInDraw += 1
 
             prizesTotal += 1; // claimable specific
-            winning.push(claimDecimal.toFixed());
+            winning.push(claimDecimal);
           }
 
           user = {
@@ -205,28 +250,32 @@ async function go() {
             c: winning, // array of prizes claimable
             u: dropping, // array of prizes unclaimable
             // b: normalizeBalance, // normalized balance
-            w: totalClaimable.toFixed(), // sum of prizes claimable
-            d: totalDropped.toFixed(), // sum of prizes dropped
+            
+w: totalClaimable, // sum of prizes claimable
+            d: totalDropped, // sum of prizes dropped
             g: averageBalance, // users average balance
           };
           userLucky = {
             n: network,
             d: x, // draw
             a: "0x" + row.address.toString("hex"),
-            w: totalClaimable.toFixed(),
+            w: totalClaimable,
             g: averageBalance, // users average balance
             o: totalClaimable - averageBalance,
             r: totalClaimable / averageBalance,
           };
-
+          // drawAllPlayers.push(user)
           drawJson.push(user);
           luckiest.push(userLucky);
         } else {
-          // no wins for user
+        // no longer relevant with table prizewins only showing winners  
+	// no wins for user
           user = {
             a: "0x" + row.address.toString("hex"),
-            b: normalizeBalance,
-          };
+            // b: normalizeBalance,
+            g: averageBalance,  // users average balance
+            };
+          // drawAllPlayers.push(user)      
         }
       }
       console.log("draw ", x, " players total", total);
@@ -235,19 +284,27 @@ async function go() {
         return a.w - b.w;
       });
       drawJson.reverse();
+      
+      let newTimestamp = await getDrawTimestamp(x)
+      let cookiesObject = {draw: x,timestamp: newTimestamp,result: drawJson}
+      cookies.push(cookiesObject)
+
       drawString = "/draw" + x
-if(!usePrizeApi){      
-publish(drawJson,drawString);
-      if (x === newestDrawId) {
-        let recentDraw = {};
-        recentDraw.result = drawJson;
-        recentDraw.id = newestDrawId;
-        publish(recentDraw, "/recent");
-        console.log("published recent ", x);
+      if (!usePrizeApi) {
+if(x===newestDrawId && recentFromApi) {}else{
+        publish(drawJson, drawString);
+        // publish(drawAllPlayers,drawString + "all");
+        }
+        if (x === newestDrawId && !recentFromApi) {
+          let recentDraw = {};
+          recentDraw.result = drawJson;
+          recentDraw.id = newestDrawId;
+          publish(recentDraw, "/recent");
+          console.log("published recent ", x);
+        }
+        fs.writeFileSync("./draws/draw" + x + ".json", JSON.stringify(drawJson));
       }
-      fs.writeFileSync("./draws/draw" + x + ".json", JSON.stringify(drawJson));
-      }
-let totalPrizeValue = drawClaimable + drawDropped
+      let totalPrizeValue = drawClaimable + drawDropped
 
       console.log(
         "winners",
@@ -268,52 +325,58 @@ let totalPrizeValue = drawClaimable + drawDropped
         t: totalPrizeValue.toFixed(0), //total
       }
       totalHistory.push(drawStats)
+      
 
       //if(x>105) {
-      
-     // let prizeApi = await CheckPrizeApi(x.toString())
+
+      // let prizeApi = await CheckPrizeApi(x.toString())
       //console.log("Prize API: ",prizeApi)
-     // }
+      // }
 
       //let databaseResult = {totalPrizeCount: totalPrizesInDraw,
-     // totalPrizeAmount: totalPrizeValue}
-     // console.log("DB Result: ",databaseResult)
+      // totalPrizeAmount: totalPrizeValue}
+      // console.log("DB Result: ",databaseResult)
 
-
+      // clear for next draw
+      // drawAllPlayers = []
       drawJson = [];
       total = 0;
       prizesTotal = 0;
       drawClaimable = 0;
       drawDropped = 0;
       totalPrizesInDraw = 0;
-    } catch (e) {
+//    }else{
+// publish(drawData,'/draw'+x)
+// console.log("published draw ",x," from file")
+// }
+} catch (e) {
       console.log("errors", e);
     }
   }
 
-if(usePrizeApi){
-  for (let x = 1; x <= newestDrawId; x++) {
-try{
-    let result = await ApiSort(x);
-    let winners = result.result
-     winners.sort(function (a, b) {
-        return a.w - b.w;
-      });
-      winners.reverse();
-    let publishUrl = "/draw" + x
+  if (usePrizeApi) {
+    for (let x = 1; x <= newestDrawId; x++) {
+      try {
+        let result = await ProcessPrizeApiDraw(x);
+        let winners = result.result
+        winners.sort(function (a, b) {
+          return a.w - b.w;
+        });
+        winners.reverse();
+        let publishUrl = "/draw" + x
 
-    publish(winners,publishUrl)
-if (x === newestDrawId) {
-        let recentDraw = {};
-        recentDraw.result = winners;
-        recentDraw.id = newestDrawId;
-        publish(recentDraw, "/recent");
-        console.log("published recent ", x);
-      }
+        publish(winners, publishUrl)
+        if (x === newestDrawId) {
+          let recentDraw = {};
+          recentDraw.result = winners;
+          recentDraw.id = newestDrawId;
+          publish(recentDraw, "/recent");
+          console.log("published recent ", x);
+        }
 
-}catch(error){console.log(error)}
+      } catch (error) { console.log(error) }
+    }
   }
-}
   try {
     await openAddressApi();
   } catch (e) {
@@ -325,20 +388,79 @@ if (x === newestDrawId) {
   });
   luckiest.reverse();
   publish(luckiest.slice(0, 20), "/luckiest");
+  //      fs.writeFileSync("./draws/luckiest" + x + ".json",luckiest.slice(0, 20));
 
   luckiest.sort(function (a, b) {
     return a.r - b.r;
   });
   luckiest.reverse();
   publish(luckiest.slice(0, 20), "/luckiestR");
-  publish(totalHistory,"/history");
-  try{
-  let check = await CheckApi()
-  publish(check,"/calculations")
-  }catch(error){console.log("calculation check failed -> \n",error)}
- 
+  publish(totalHistory, "/history");
+  let lidoApy = await GetLidoApy()
+  publish(JSON.stringify(lidoApy),"/lidoApy")
+
+//   fs.writeFileSync("./draws/luckiestR" + x + ".json",luckiest.slice(0, 20));
+
+  let chocChip = await publish(cookies,"/cookies")
+//   fs.writeFileSync("./draws/cookies" + x + ".json",cookies);
+// let polygonPlayers = await FetchPlayers(137)  
+//   let polygonPlayersPublished = await publish(polygonPlayers,"/polygonPlayers")
+
+  if (compareApiSources) {
+    try {
+      let check = await CheckApi()
+      publish(check, "/calculations")
+    } catch (error) { console.log("calculation check failed -> \n", error) }
 }
 
+if(recentFromApi) {try{
+let recentApi = await ProcessPrizeApiDraw(newestDrawId)
+console.log("api 0",recentApi.result[0])
+let recentResult = {result: recentApi.result, id: newestDrawId}
+          publish(recentResult, "/recent");
+publish(recentApi.result,"/draw"+newestDrawId)
+
+}catch(error){console.log(error)}}
+
+  
+while(true) {
+await updatePlayers(137)
+await delay(60000)
+await updatePlayers(10)
+await delay(60000)
+await updatePlayers(1)
+await delay(60000)
+await updatePlayers(43114)
+await delay(60000)
+await updateHolders(1)
+await delay(60000) 
+await updateHolders(10)
+await delay(60000) 
+await updateHolders(137)
+}
+if(recentFromApi) {try{
+let recentApi = await ProcessPrizeApiDraw(newestDrawId)
+let recentResult = {result: recentApi, id: newestDrawId}
+          publish(recentResult, "/recent");}catch(error){console.log(error)}}
+
+
+try{console.log(args[2]," arg2");
+if(args[2] === "prizeapi") {console.log("its prize api");
+let prizeApiData = await ProcessPrizeApiDraw(290)
+publish(prizeApiData,"/prizeApi290")
+}}catch(error){console.log("can't publish prize api",error)}
+
+}
+async function updateHolders (chainNumber) {
+ let holdersList = await FetchHolders(chainNumber)  
+   let holdersListPublished = await publish(holdersList,"/holders" + chainNumber)
+console.log(chainNumber + " updated holdersList")
+}
+async function updatePlayers (chainNumber) {
+ let polygonPlayers = await FetchPlayers(chainNumber)  
+   let polygonPlayersPublished = await publish(polygonPlayers,"/players" + chainNumber)
+console.log(chainNumber + " updated players")
+}
 async function openApi() {
   // app.listen(port, () => {
   //   console.log(`Example app listening at http://localhost:${port}`)
@@ -362,6 +484,15 @@ async function publish(json, name) {
     }
   });
 }
+
+async function getDrawTimestamp(drawNumber) {
+    try{
+        let timestampQuery = "select timestamp from draws where draw_id='" + drawNumber + "'";
+        let timestamp = await db.any(timestampQuery)
+        // console.log(timestamp)
+        return timestamp[0].timestamp
+    }catch(error){console.log(error);return null}
+}
 async function openAddressApi() {
   app.get("/player", async (req, res, next) => {
     // var addressInput = sanitizer.value(req.query.address, 'string');
@@ -371,9 +502,13 @@ async function openAddressApi() {
       ethers.utils.isAddress(req.query.address)
     ) {
       let address = "\\" + req.query.address.substring(1);
-      // console.log('query for address' + address)
-      let addressQuery =
-        "select network,address,draw_id,claimable_prizes from prizes where address='" +
+let wins = req.query.wins;   
+   // console.log('query for address' + address)
+let table = "prizes";
+if(wins==="true") {
+table = "prizewins"}      
+let addressQuery =
+        "select network,address,draw_id,claimable_prizes,claimable_picks from " + table + " where address='" +
         address +
         "'";
       let addressPrizes = await db.any(addressQuery);

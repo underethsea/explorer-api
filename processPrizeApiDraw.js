@@ -54,7 +54,7 @@ async function processPrizeApiDraw(drawId) {
         prizes.forEach(p => {
           let float = parseFloat(p)
           float = float / 1e6
-          float = float.toFixed(0)
+          float = float.toFixed(2)
           float = float.toString()
           prizesFloat.push(float)
         })
@@ -112,6 +112,13 @@ async function processPrizeApiDraw(drawId) {
   console.log("total prizes claimable ", prizeNetworkClaimableCount)
   console.log("total claimable: ", prizeNetworkClaimable)
   console.log("total dropped: ", prizeNetworkDropped)
+ prizesAllChains.sort(function (a, b) {
+        return a.w - b.w;
+      });
+      prizesAllChains.reverse();
+      
+
+
   const prizeApiReturn = {
     result: prizesAllChains,
     totalPrizeCount: totalPrizeLength,

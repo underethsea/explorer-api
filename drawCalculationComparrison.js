@@ -6,6 +6,7 @@ const dotenv = require("dotenv");
 
 const CheckPrizeApi = require("./checkPrizeApi.js");
 dotenv.config();
+const startBuild =  375
 
 const cn = {
   host: "localhost", // server name or IP address;
@@ -55,8 +56,8 @@ module.exports = async () => {
 
   let newestDrawId = await getCurrentDraw();
   console.log("current draw ",newestDrawId)
-  
-  let startBuild =  1
+// newestDrawId = 348 
+ 
  let calcStatus = []
 
   for (x = startBuild; x <= newestDrawId; x++) {

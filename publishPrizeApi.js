@@ -1,15 +1,40 @@
 const express = require("express");
 const cors = require("cors");
-const { ApiSort } = require("./testApiSort.js")
+const http = require("http");
+const https = require("https");
+const fs = require("fs");
+
+const { ProcessPrizeApiDraw } = require("./processPrizeApiDraw.js")
+
 const rateLimit = require("express-rate-limit");
 var compression = require("compression");
 
 
 
 const app = express();
-const currentDraw = 272
+const currentDraw = 372
 // use previous calculations (json files) to rebuild API
-const useStaticFiles = true
+// const useStaticFiles = true  // NEED IMPLEMENTATION
+
+const privateKey = fs.readFileSync(
+  "/etc/letsencrypt/live/poolexplorer.xyz/privkey.pem",
+  "utf8"
+);
+const certificate = fs.readFileSync(
+  "/etc/letsencrypt/live/poolexplorer.xyz/cert.pem",
+  "utf8"
+);
+const ca = fs.readFileSync(
+  "/etc/letsencrypt/live/poolexplorer.xyz/chain.pem",
+  "utf8"
+);
+
+const credentials = {
+  key: privateKey,
+  cert: certificate,
+  ca: ca,
+};
+
 
 const allowList = ["::ffff:51.81.32.49"];
 const limiter = rateLimit({
@@ -29,6 +54,18 @@ const limiter = rateLimit({
   },
 });
 
+// Starting both http & https servers
+const httpServer = http.createServer(app);
+const httpsServer = https.createServer(credentials, app);
+
+httpServer.listen(80, () => {
+  console.log("HTTP Server running on port 80");
+});
+
+httpsServer.listen(443, () => {
+  console.log("HTTPS Server running on port 443");
+});
+
 async function go(){
     app.use(limiter);
 
@@ -38,8 +75,8 @@ async function go(){
     console.log("express error:", e);
 
   }
-  for (let x = 1; x <= currentDraw; x++) {
-    let result = await ApiSort(x);
+  for (let x = 290; x <= currentDraw; x++) {
+    let result = await ProcessPrizeApiDraw(x);
    
     let drawString = "/prizeAPI" + x
 
@@ -67,6 +104,7 @@ async function openApi() {
     app.get(name, async (req, res) => {
       try {
         res.send(json);
+        console.log("published ",name)
       } catch (err) {
         throw err;
       }
